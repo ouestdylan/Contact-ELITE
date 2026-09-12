@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prendre rendez-vous</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+<style>
+  :root{
+    --ink:#0f1e33; --paper:#0f1e33; --card:#ffffff; --line:#e2ddd0;
+    --gold:#a9823f; --gold-soft:#f1e6cf; --red:#b23b3b; --red-soft:#f6e6e6;
+    --green:#2f6b4f; --green-soft:#e5f0e9; --muted:#6b6459; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink); min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex; align-items:flex-start; justify-content:center; padding:32px 16px;
+  }
+  .card{
+    background:var(--card); width:100%; max-width:560px; border-radius:var(--radius);
+    box-shadow:0 30px 60px rgba(0,0,0,.35); overflow:hidden;
+  }
+  .card-header{background:var(--ink); color:#fff; padding:26px 28px;}
+  .card-header h1{margin:0; font-size:20px; font-family:'Iowan Old Style','Georgia',serif;}
+  .card-header p{margin:6px 0 0; color:#b9c2d1; font-size:13.5px;}
+  .card-body{padding:26px 28px;}
+  p.hint{color:var(--muted); font-size:13.5px; margin:0 0 18px;}
+  .state{display:none;}
+  .state.active{display:block;}
+  .spinner{
+    width:30px; height:30px; margin:30px auto; border-radius:50%;
+    border:3px solid var(--line); border-top-color:var(--gold); animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .days{display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:18px;}
+  .day-pill{
+    flex:0 0 auto; border:1px solid var(--line); background:#fff; border-radius:10px;
+    padding:10px 14px; text-align:center; font-size:12.5px; font-weight:600; color:var(--ink);
+    cursor:pointer; min-width:64px;
+  }
+  .day-pill .dow{display:block; font-size:10.5px; color:var(--muted); text-transform:uppercase; margin-bottom:2px;}
+  .day-pill.active{background:var(--ink); border-color:var(--ink); color:#fff;}
+  .day-pill.active .dow{color:#b9c2d1;}
+  .slots{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:20px;}
+  .slot-btn{
+    border:1px solid var(--line); background:#fff; border-radius:8px; padding:10px 4px;
+    font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer;
+  }
+  .slot-btn:hover{border-color:var(--gold);}
+  .slot-btn.active{background:var(--gold); border-color:var(--gold); color:#fff;}
+  .slot-btn:disabled{background:#f4f2ec; color:#c3bdae; border-color:var(--line); cursor:not-allowed; text-decoration:line-through;}
+  .no-slots{color:var(--muted); font-size:13.5px; padding:20px 0; text-align:center;}
+  .btn{
+    width:100%; border:none; border-radius:8px; padding:13px 16px; font-size:14.5px;
+    font-weight:700; cursor:pointer; background:var(--red); color:#fff;
+  }
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
+  .btn:hover:not(:disabled){opacity:.9;}
+  .error-box{
+    background:var(--red-soft); color:var(--red); padding:10px 12px; border-radius:8px;
+    font-size:13px; margin-bottom:14px; display:none;
+  }
+  .success-icon{
+    width:52px; height:52px; border-radius:50%; background:var(--green-soft); color:var(--green);
+    display:flex; align-items:center; justify-content:center; font-size:26px; margin:6px auto 16px;
+  }
+  .recap{
+    background:#fbfaf7; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    text-align:center; margin-bottom:18px;
+  }
+  .recap .big{font-size:17px; font-weight:700; text-transform:capitalize;}
+  .recap .small{color:var(--muted); font-size:13px; margin-top:2px;}
+  .cal-links{display:flex; gap:8px;}
+  .cal-links a{
+    flex:1; text-align:center; border:1px solid var(--line); border-radius:8px; padding:10px 8px;
+    font-size:12.5px; font-weight:600; color:var(--ink); text-decoration:none; background:#fff;
+  }
+  .cal-links a:hover{border-color:var(--gold); color:var(--gold);}
+  .center-text{text-align:center;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="card-header">
+    <h1 id="headerTitle">Prendre rendez-vous</h1>
+    <p id="headerSub">Choisissez un créneau qui vous convient.</p>
+  </div>
+  <div class="card-body">
+
+    <div class="state active" id="stateLoading">
+      <div class="spinner"></div>
+    </div>
+
+    <div class="state" id="stateInvalid">
+      <p class="hint center-text">Ce lien de prise de rendez-vous n'est pas valide ou a expiré. Merci de nous contacter directement.</p>
+    </div>
+
+    <div class="state" id="statePicker">
+      <p class="hint" id="pickerHint">Sélectionnez un jour puis un horaire (30 min).</p>
+      <div class="days" id="daysRow"></div>
+      <div class="slots" id="slotsGrid"></div>
+      <div class="no-slots" id="noSlotsMsg" style="display:none;">Aucun créneau disponible ce jour-là.</div>
+      <div class="error-box" id="bookingError"></div>
+      <button class="btn" id="confirmBtn" disabled>Confirmer le rendez-vous</button>
+    </div>
+
+    <div class="state" id="stateSuccess">
+      <div class="success-icon">✓</div>
+      <p class="hint center-text" style="margin-bottom:14px;">Votre rendez-vous est confirmé !</p>
+      <div class="recap">
+        <div class="big" id="recapDate"></div>
+        <div class="small" id="recapTime"></div>
+      </div>
+      <div class="cal-links">
+        <a id="googleCalLink" href="#" target="_blank" rel="noopener">📅 Google Agenda</a>
+        <a id="icsLink" href="#" download="rendez-vous.ics">📥 Ajouter (.ics)</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIGURATION SUPABASE (mêmes identifiants que le CRM — clé publique,
+   c'est normal et attendu qu'elle soit visible ici)
+   ============================================================ */
+const SUPABASE_URL = 'https://gjgoiyubnisuaojgjsev.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_VdUbxcgsZ3y9Wms3B0RS1Q_dXl_77Ou';
+const { createClient } = supabase;
+const supabaseClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(window.location.search);
+const prospectId = params.get('id');
+
+const BUSINESS_DAYS_AHEAD = 15;       // combien de jours ouvrés proposer
+const SLOT_START_HOUR = 9;            // 9h
+const LUNCH_START_HOUR = 12.5;        // pause déjeuner 12h30
+const LUNCH_END_HOUR = 14;            // reprise 14h
+const SLOT_END_HOUR = 18;             // 18h
+const SLOT_STEP_MIN = 30;
+
+let bookedTimestamps = new Set();
+let availableDays = [];
+let selectedDayKey = null;
+let selectedSlot = null; // Date
+
+function showState(id){
+  document.querySelectorAll('.state').forEach(s=>s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+
+function buildBusinessDays(){
+  const days = [];
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate()+1); // on commence demain
+  while(days.length < BUSINESS_DAYS_AHEAD){
+    if(d.getDay() !== 0 && d.getDay() !== 6){
+      days.push(new Date(d));
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+
+function buildSlotsForDay(day){
+  const slots = [];
+  let h = SLOT_START_HOUR;
+  while(h < SLOT_END_HOUR){
+    if(h >= LUNCH_START_HOUR && h < LUNCH_END_HOUR){ h += SLOT_STEP_MIN/60; continue; }
+    const hour = Math.floor(h);
+    const minute = Math.round((h - hour) * 60);
+    const dt = new Date(day);
+    dt.setHours(hour, minute, 0, 0);
+    slots.push(dt);
+    h += SLOT_STEP_MIN/60;
+  }
+  return slots;
+}
+
+function renderDays(){
+  const row = $('daysRow');
+  row.innerHTML = availableDays.map(d=>{
+    const key = d.toDateString();
+    const dow = d.toLocaleDateString('fr-FR', { weekday:'short' });
+    const num = d.toLocaleDateString('fr-FR', { day:'numeric', month:'short' });
+    return `<div class="day-pill ${key===selectedDayKey?'active':''}" data-key="${key}" onclick="selectDay('${key}')">
+      <span class="dow">${dow}</span>${num}
+    </div>`;
+  }).join('');
+}
+
+function selectDay(key){
+  selectedDayKey = key;
+  selectedSlot = null;
+  $('confirmBtn').disabled = true;
+  renderDays();
+  renderSlots();
+}
+
+function renderSlots(){
+  const day = availableDays.find(d=>d.toDateString()===selectedDayKey);
+  const grid = $('slotsGrid');
+  if(!day){ grid.innerHTML=''; return; }
+  const now = new Date();
+  const slots = buildSlotsForDay(day);
+  const visible = slots.filter(s => s > now);
+
+  if(!visible.length){
+    grid.innerHTML = '';
+    $('noSlotsMsg').style.display = 'block';
+    return;
+  }
+  $('noSlotsMsg').style.display = 'none';
+
+  grid.innerHTML = visible.map(s=>{
+    const iso = s.toISOString();
+    const taken = bookedTimestamps.has(iso);
+    const label = s.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+    return `<button type="button" class="slot-btn" data-iso="${iso}" ${taken?'disabled':''} onclick="selectSlot('${iso}')">${label}</button>`;
+  }).join('');
+}
+
+function selectSlot(iso){
+  selectedSlot = new Date(iso);
+  document.querySelectorAll('.slot-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.iso === iso);
+  });
+  $('confirmBtn').disabled = false;
+  $('bookingError').style.display = 'none';
+}
+
+function showBookingError(msg){
+  const el = $('bookingError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function init(){
+  if(!prospectId){ showState('stateInvalid'); return; }
+
+  try{
+    const { data: contact, error: contactErr } = await supabaseClient.rpc('get_booking_contact', { p_id: prospectId });
+    if(contactErr || !contact || !contact.length){
+      showState('stateInvalid');
+      return;
+    }
+    const prenom = contact[0].prenom || '';
+    $('headerTitle').textContent = prenom ? `Bonjour ${prenom} 👋` : 'Prendre rendez-vous';
+    $('headerSub').textContent = 'Choisissez un créneau pour votre rendez-vous.';
+
+    const { data: booked } = await supabaseClient.rpc('get_booked_slots');
+    bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
+
+    availableDays = buildBusinessDays();
+    selectedDayKey = availableDays[0].toDateString();
+    renderDays();
+    renderSlots();
+    showState('statePicker');
+  }catch(e){
+    showState('stateInvalid');
+  }
+}
+
+function buildIcs(dt){
+  const start = new Date(dt);
+  const end = new Date(start.getTime() + 30*60000);
+  const fmt = d => d.toISOString().replace(/[-:]|\.\d{3}/g,'');
+  const ics = [
+    'BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',
+    `DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,
+    'SUMMARY:Rendez-vous',
+    'END:VEVENT','END:VCALENDAR'
+  ].join('\r\n');
+  return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+}
+
+function buildGCalLink(dt){
+  const start = new Date(dt);
+  const end = new Date(start.getTime() + 30*60000);
+  const fmt = d => d.toISOString().replace(/[-:]|\.\d{3}/g,'');
+  const text = encodeURIComponent('Rendez-vous');
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${fmt(start)}/${fmt(end)}`;
+}
+
+$('confirmBtn').addEventListener('click', async ()=>{
+  if(!selectedSlot) return;
+  $('confirmBtn').disabled = true;
+  $('confirmBtn').textContent = 'Confirmation…';
+  $('bookingError').style.display = 'none';
+
+  try{
+    const { data, error } = await supabaseClient.rpc('book_appointment', {
+      p_id: prospectId,
+      p_datetime: selectedSlot.toISOString()
+    });
+
+    if(error || data !== true){
+      showBookingError("Ce créneau vient d'être pris, ou une erreur est survenue. Merci de choisir un autre horaire.");
+      $('confirmBtn').disabled = false;
+      $('confirmBtn').textContent = 'Confirmer le rendez-vous';
+      // on rafraîchit les créneaux pris
+      const { data: booked } = await supabaseClient.rpc('get_booked_slots');
+      bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
+      renderSlots();
+      return;
+    }
+
+    $('recapDate').textContent = selectedSlot.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+    $('recapTime').textContent = 'à ' + selectedSlot.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+    $('googleCalLink').href = buildGCalLink(selectedSlot);
+    $('icsLink').href = buildIcs(selectedSlot);
+    showState('stateSuccess');
+  }catch(e){
+    showBookingError('Erreur réseau. Merci de réessayer.');
+    $('confirmBtn').disabled = false;
+    $('confirmBtn').textContent = 'Confirmer le rendez-vous';
+  }
+});
+
+init();
+</script>
+</body>
+</html>
