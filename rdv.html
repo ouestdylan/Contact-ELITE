@@ -94,7 +94,6 @@
   <div class="card-header">
     <h1 id="headerTitle">Prendre rendez-vous</h1>
     <p id="headerSub">Choisissez un créneau qui vous convient.</p>
-    <p id="headerAssocie" style="margin:4px 0 0; color:#8fa0bd; font-size:12px; display:none;"></p>
   </div>
   <div class="card-body">
 
@@ -155,19 +154,9 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_VdUbxcgsZ3y9Wms3B0RS1Q_dXl_77Ou
 const { createClient } = supabase;
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-// ⚠️ Doit être IDENTIQUE à la liste ASSOCIES du CRM (crm.html).
-const ASSOCIES = [
-  { key: 'dylan',   name: 'Dylan',   userId: 'ec338b51-6d1e-4954-aef2-e39dfeb552b2' },
-  { key: 'ruben',   name: 'Ruben',   userId: 'cf144b42-da03-4181-b687-8abdd32632d8' },
-  { key: 'vincent', name: 'Vincent', userId: '369568bc-e686-48f1-9c19-b40245190b88' }
-];
-
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(window.location.search);
 const prospectId = params.get('id');
-// Lien générique : ?associe=dylan détermine dans quel compte le RDV est créé.
-// Si absent ou inconnu, on retombe sur le 1er associé de la liste.
-const targetAssocie = ASSOCIES.find(a => a.key === params.get('associe')) || ASSOCIES[0];
 
 const BUSINESS_DAYS_AHEAD = 15;       // combien de jours ouvrés proposer
 const SLOT_START_HOUR = 9;            // 9h
@@ -288,12 +277,6 @@ async function init(){
       $('headerTitle').textContent = displayName ? `Bonjour ${displayName} 👋` : 'Prendre rendez-vous';
       $('headerSub').textContent = 'Choisissez un créneau pour votre rendez-vous.';
       $('identFields').style.display = 'none';
-
-      const owner = ASSOCIES.find(a => a.userId === contact[0].user_id);
-      if(owner){
-        $('headerAssocie').textContent = `Rendez-vous avec ${owner.name}`;
-        $('headerAssocie').style.display = 'block';
-      }
     }catch(e){
       showState('stateInvalid');
       return;
@@ -304,12 +287,10 @@ async function init(){
     $('headerTitle').textContent = 'Prendre rendez-vous';
     $('headerSub').textContent = 'Indiquez vos coordonnées, puis choisissez un créneau.';
     $('identFields').style.display = 'block';
-    $('headerAssocie').textContent = `Rendez-vous avec ${targetAssocie.name}`;
-    $('headerAssocie').style.display = 'block';
   }
 
   const { data: booked } = isAnonymous
-    ? await supabaseClient.rpc('get_booked_slots_for_account', { p_user_id: targetAssocie.userId })
+    ? await supabaseClient.rpc('get_booked_slots')
     : await supabaseClient.rpc('get_booked_slots_for_prospect', { p_id: prospectId });
   bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
 
@@ -368,7 +349,7 @@ $('confirmBtn').addEventListener('click', async ()=>{
       ({ data, error } = await supabaseClient.rpc('book_appointment_new', {
         p_prenom: ident.prenom, p_nom: ident.nom, p_societe: ident.societe,
         p_telephone: ident.telephone, p_email: ident.email,
-        p_domaine: domaine, p_user_id: targetAssocie.userId, p_datetime: selectedSlot.toISOString()
+        p_domaine: domaine, p_datetime: selectedSlot.toISOString()
       }));
     } else {
       ({ data, error } = await supabaseClient.rpc('book_appointment', {
@@ -383,7 +364,7 @@ $('confirmBtn').addEventListener('click', async ()=>{
       $('confirmBtn').textContent = 'Confirmer le rendez-vous';
       // on rafraîchit les créneaux pris
       const { data: booked } = isAnonymous
-        ? await supabaseClient.rpc('get_booked_slots_for_account', { p_user_id: targetAssocie.userId })
+        ? await supabaseClient.rpc('get_booked_slots')
         : await supabaseClient.rpc('get_booked_slots_for_prospect', { p_id: prospectId });
       bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
       renderSlots();
