@@ -79,6 +79,14 @@
   }
   .cal-links a:hover{border-color:var(--gold); color:var(--gold);}
   .center-text{text-align:center;}
+  .ident-fields{margin-bottom:18px;}
+  .ident-row{display:flex; gap:8px; margin-bottom:10px;}
+  .ident-fields input{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; background:#fbfaf7;
+  }
+  .ident-row input{flex:1; min-width:0;}
+  .ident-fields input:focus{outline:none; border-color:var(--gold);}
 </style>
 </head>
 <body>
@@ -98,6 +106,20 @@
     </div>
 
     <div class="state" id="statePicker">
+      <div class="ident-fields" id="identFields" style="display:none;">
+        <div class="ident-row">
+          <input type="text" id="identPrenom" placeholder="Prénom">
+          <input type="text" id="identNom" placeholder="Nom *">
+        </div>
+        <div class="ident-row">
+          <input type="text" id="identSociete" placeholder="Société (optionnel)">
+        </div>
+        <div class="ident-row">
+          <input type="tel" id="identTelephone" placeholder="Téléphone">
+          <input type="email" id="identEmail" placeholder="Email">
+        </div>
+        <p class="hint" style="margin-bottom:0;">Téléphone ou email obligatoire, pour pouvoir vous recontacter.</p>
+      </div>
       <p class="hint" id="pickerHint">Sélectionnez un jour puis un horaire (30 min).</p>
       <div class="days" id="daysRow"></div>
       <div class="slots" id="slotsGrid"></div>
@@ -147,6 +169,7 @@ let bookedTimestamps = new Set();
 let availableDays = [];
 let selectedDayKey = null;
 let selectedSlot = null; // Date
+let isAnonymous = false; // true si pas de ?id= dans le lien (lien générique)
 
 function showState(id){
   document.querySelectorAll('.state').forEach(s=>s.classList.remove('active'));
@@ -241,29 +264,39 @@ function showBookingError(msg){
 }
 
 async function init(){
-  if(!prospectId){ showState('stateInvalid'); return; }
-
-  try{
-    const { data: contact, error: contactErr } = await supabaseClient.rpc('get_booking_contact', { p_id: prospectId });
-    if(contactErr || !contact || !contact.length){
+  if(prospectId){
+    // Lien personnalisé (envoyé à un prospect déjà connu dans le CRM)
+    isAnonymous = false;
+    try{
+      const { data: contact, error: contactErr } = await supabaseClient.rpc('get_booking_contact', { p_id: prospectId });
+      if(contactErr || !contact || !contact.length){
+        showState('stateInvalid');
+        return;
+      }
+      const prenom = contact[0].prenom || '';
+      $('headerTitle').textContent = prenom ? `Bonjour ${prenom} 👋` : 'Prendre rendez-vous';
+      $('headerSub').textContent = 'Choisissez un créneau pour votre rendez-vous.';
+      $('identFields').style.display = 'none';
+    }catch(e){
       showState('stateInvalid');
       return;
     }
-    const prenom = contact[0].prenom || '';
-    $('headerTitle').textContent = prenom ? `Bonjour ${prenom} 👋` : 'Prendre rendez-vous';
-    $('headerSub').textContent = 'Choisissez un créneau pour votre rendez-vous.';
-
-    const { data: booked } = await supabaseClient.rpc('get_booked_slots');
-    bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
-
-    availableDays = buildBusinessDays();
-    selectedDayKey = availableDays[0].toDateString();
-    renderDays();
-    renderSlots();
-    showState('statePicker');
-  }catch(e){
-    showState('stateInvalid');
+  } else {
+    // Lien générique (campagne large) : on demande d'abord qui est la personne
+    isAnonymous = true;
+    $('headerTitle').textContent = 'Prendre rendez-vous';
+    $('headerSub').textContent = 'Indiquez vos coordonnées, puis choisissez un créneau.';
+    $('identFields').style.display = 'block';
   }
+
+  const { data: booked } = await supabaseClient.rpc('get_booked_slots');
+  bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
+
+  availableDays = buildBusinessDays();
+  selectedDayKey = availableDays[0].toDateString();
+  renderDays();
+  renderSlots();
+  showState('statePicker');
 }
 
 function buildIcs(dt){
@@ -289,15 +322,39 @@ function buildGCalLink(dt){
 
 $('confirmBtn').addEventListener('click', async ()=>{
   if(!selectedSlot) return;
+
+  let ident = null;
+  if(isAnonymous){
+    ident = {
+      prenom: $('identPrenom').value.trim(),
+      nom: $('identNom').value.trim(),
+      societe: $('identSociete').value.trim(),
+      telephone: $('identTelephone').value.trim(),
+      email: $('identEmail').value.trim()
+    };
+    if(!ident.nom){ showBookingError('Merci de renseigner votre nom.'); return; }
+    if(!ident.telephone && !ident.email){ showBookingError('Merci de renseigner un téléphone ou un email.'); return; }
+  }
+
   $('confirmBtn').disabled = true;
   $('confirmBtn').textContent = 'Confirmation…';
   $('bookingError').style.display = 'none';
 
   try{
-    const { data, error } = await supabaseClient.rpc('book_appointment', {
-      p_id: prospectId,
-      p_datetime: selectedSlot.toISOString()
-    });
+    let data, error;
+    if(isAnonymous){
+      const domaine = params.get('domaine') === 'Solaire' ? 'Solaire' : 'CGP';
+      ({ data, error } = await supabaseClient.rpc('book_appointment_new', {
+        p_prenom: ident.prenom, p_nom: ident.nom, p_societe: ident.societe,
+        p_telephone: ident.telephone, p_email: ident.email,
+        p_domaine: domaine, p_datetime: selectedSlot.toISOString()
+      }));
+    } else {
+      ({ data, error } = await supabaseClient.rpc('book_appointment', {
+        p_id: prospectId,
+        p_datetime: selectedSlot.toISOString()
+      }));
+    }
 
     if(error || data !== true){
       showBookingError("Ce créneau vient d'être pris, ou une erreur est survenue. Merci de choisir un autre horaire.");
