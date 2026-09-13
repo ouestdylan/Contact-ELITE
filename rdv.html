@@ -154,9 +154,19 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_VdUbxcgsZ3y9Wms3B0RS1Q_dXl_77Ou
 const { createClient } = supabase;
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
+// ⚠️ Doit être IDENTIQUE à la liste ASSOCIES du CRM (crm.html).
+const ASSOCIES = [
+  { key: 'dylan',   name: 'Dylan',   userId: 'ec338b51-6d1e-4954-aef2-e39dfeb552b2' },
+  { key: 'ruben',   name: 'Ruben',   userId: 'cf144b42-da03-4181-b687-8abdd32632d8' },
+  { key: 'vincent', name: 'Vincent', userId: '369568bc-e686-48f1-9c19-b40245190b88' }
+];
+
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(window.location.search);
 const prospectId = params.get('id');
+// Lien générique : ?associe=dylan détermine dans quel compte le RDV est créé.
+// Si absent ou inconnu, on retombe sur le 1er associé de la liste.
+const targetAssocie = ASSOCIES.find(a => a.key === params.get('associe')) || ASSOCIES[0];
 
 const BUSINESS_DAYS_AHEAD = 15;       // combien de jours ouvrés proposer
 const SLOT_START_HOUR = 9;            // 9h
@@ -289,7 +299,9 @@ async function init(){
     $('identFields').style.display = 'block';
   }
 
-  const { data: booked } = await supabaseClient.rpc('get_booked_slots');
+  const { data: booked } = isAnonymous
+    ? await supabaseClient.rpc('get_booked_slots_for_account', { p_user_id: targetAssocie.userId })
+    : await supabaseClient.rpc('get_booked_slots_for_prospect', { p_id: prospectId });
   bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
 
   availableDays = buildBusinessDays();
@@ -347,7 +359,7 @@ $('confirmBtn').addEventListener('click', async ()=>{
       ({ data, error } = await supabaseClient.rpc('book_appointment_new', {
         p_prenom: ident.prenom, p_nom: ident.nom, p_societe: ident.societe,
         p_telephone: ident.telephone, p_email: ident.email,
-        p_domaine: domaine, p_datetime: selectedSlot.toISOString()
+        p_domaine: domaine, p_user_id: targetAssocie.userId, p_datetime: selectedSlot.toISOString()
       }));
     } else {
       ({ data, error } = await supabaseClient.rpc('book_appointment', {
@@ -361,7 +373,9 @@ $('confirmBtn').addEventListener('click', async ()=>{
       $('confirmBtn').disabled = false;
       $('confirmBtn').textContent = 'Confirmer le rendez-vous';
       // on rafraîchit les créneaux pris
-      const { data: booked } = await supabaseClient.rpc('get_booked_slots');
+      const { data: booked } = isAnonymous
+        ? await supabaseClient.rpc('get_booked_slots_for_account', { p_user_id: targetAssocie.userId })
+        : await supabaseClient.rpc('get_booked_slots_for_prospect', { p_id: prospectId });
       bookedTimestamps = new Set((booked||[]).map(b=>new Date(b.date_rdv).toISOString()));
       renderSlots();
       return;
