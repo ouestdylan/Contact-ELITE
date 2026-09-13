@@ -94,6 +94,7 @@
   <div class="card-header">
     <h1 id="headerTitle">Prendre rendez-vous</h1>
     <p id="headerSub">Choisissez un créneau qui vous convient.</p>
+    <p id="headerAssocie" style="margin:4px 0 0; color:#8fa0bd; font-size:12px; display:none;"></p>
   </div>
   <div class="card-body">
 
@@ -283,10 +284,16 @@ async function init(){
         showState('stateInvalid');
         return;
       }
-      const prenom = contact[0].prenom || '';
-      $('headerTitle').textContent = prenom ? `Bonjour ${prenom} 👋` : 'Prendre rendez-vous';
+      const displayName = contact[0].prenom || contact[0].nom || '';
+      $('headerTitle').textContent = displayName ? `Bonjour ${displayName} 👋` : 'Prendre rendez-vous';
       $('headerSub').textContent = 'Choisissez un créneau pour votre rendez-vous.';
       $('identFields').style.display = 'none';
+
+      const owner = ASSOCIES.find(a => a.userId === contact[0].user_id);
+      if(owner){
+        $('headerAssocie').textContent = `Rendez-vous avec ${owner.name}`;
+        $('headerAssocie').style.display = 'block';
+      }
     }catch(e){
       showState('stateInvalid');
       return;
@@ -297,6 +304,8 @@ async function init(){
     $('headerTitle').textContent = 'Prendre rendez-vous';
     $('headerSub').textContent = 'Indiquez vos coordonnées, puis choisissez un créneau.';
     $('identFields').style.display = 'block';
+    $('headerAssocie').textContent = `Rendez-vous avec ${targetAssocie.name}`;
+    $('headerAssocie').style.display = 'block';
   }
 
   const { data: booked } = isAnonymous
